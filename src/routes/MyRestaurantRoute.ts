@@ -10,15 +10,26 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 1024 * 1024 * 5,
+    fileSize: 5 * 1024 * 1024, //5mb
   },
 });
+
 router.get(
-  "/",
+  "/order",
   jwtCheck,
   jwtParse,
-  MyRestaurantController.getMyRestaurant
+  MyRestaurantController.getMyRestaurantOrders
 );
+
+router.patch(
+  "/order/:orderId/status",
+  jwtCheck,
+  jwtParse,
+  MyRestaurantController.updateOrderStatus
+);
+
+router.get("/", jwtCheck, jwtParse, MyRestaurantController.getMyRestaurant);
+
 router.post(
   "/",
   upload.single("imageFile"),
@@ -28,11 +39,22 @@ router.post(
   MyRestaurantController.createMyRestaurant
 );
 
-router.put("/", 
+router.put(
+  "/:id",
   upload.single("imageFile"),
   validateMyRestaurantRequest,
-  jwtCheck, jwtParse,
+  jwtCheck,
+  jwtParse,
   MyRestaurantController.updateMyRestaurant
+);
+
+router.get("/all", jwtCheck, jwtParse, MyRestaurantController.getMyRestaurants);
+
+router.get(
+  "/:id", // Utilisation d'un paramètre dynamique `id`
+  jwtCheck,
+  jwtParse,
+  MyRestaurantController.getRestaurantById // Nouveau contrôleur à ajouter pour gérer cette logique
 );
 
 export default router;

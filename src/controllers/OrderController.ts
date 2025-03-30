@@ -1,169 +1,186 @@
-import axios from 'axios';
-import { Request, Response } from 'express';
-import crypto from 'crypto';
-import Restaurant from '../models/restaurant';
-import Order from '../models/order';
+import Stripe from "stripe";
+import { Request, Response } from "express";
+import Restaurant, { MenuItemType } from "../models/restaurant";
+import Order from "../models/order";
 
-const PAYMEE_API_KEY = process.env.PAYMEE_API_KEY as string;
+const STRIPE = new Stripe(process.env.STRIPE_API_KEY as string);
 const FRONTEND_URL = process.env.FRONTEND_URL as string;
-const PAYMEE_URL = process.env.NODE_ENV === 'production'
-  ? 'https://app.paymee.tn/api/v2/payments/create'
-  : 'https://sandbox.paymee.tn/api/v2/payments/create';
+const STRIPE_ENDPOINT_SECRET = process.env.STRIPE_WEBHOOK_SECRET as string;
 
-// Création d'une commande et initiation du paiement (Step 1)
-export const createOrder = async (req: Request, res: Response): Promise<void> => {
+const getMyOrders = async (req: Request, res: Response) => {
   try {
-    const { deliveryDetails, cartItems, restaurantId } = req.body;
+    const orders = await Order.find({ user: req.userId })
+      .populate("restaurant")
+      .populate("user");
 
-    // Validation des champs obligatoires
-    if (!deliveryDetails || !deliveryDetails.firstname || !deliveryDetails.lastname) {
-      res.status(400).json({ error: 'First name and last name are required' });
-      return;
-    }
-
-    if (!restaurantId || !cartItems || cartItems.length === 0) {
-      res.status(400).json({ error: 'Restaurant ID and cart items are required' });
-      return;
-    }
-
-    // Recherche du restaurant
-    const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant) {
-      res.status(404).json({ message: 'Restaurant not found' });
-      return;
-    }
-
-    // Calcul du montant total
-    const totalAmountInCents = calculateTotalAmount(cartItems, restaurant.menuItems) + restaurant.deliveryPrice;
-    const totalAmount = parseFloat((totalAmountInCents / 100).toFixed(2)); // Conversion en dinars
-
-    // Création de la commande en base de données
-    const newOrder = new Order({
-      restaurant: restaurant,
-      user: req.userId,
-      status: 'pending',
-      deliveryDetails,
-      cartItems,
-      totalAmount,
-      createdAt: new Date(),
-    });
-    await newOrder.save();
-
-    // Données pour l'API Paymee
-    const paymentData = {
-      amount: totalAmount,  
-      note: `Order from ${restaurant.restaurantName}`,
-      first_name: deliveryDetails.firstname,
-      last_name: deliveryDetails.lastname,
-      email: deliveryDetails.email,
-      phone: deliveryDetails.phone,
-      return_url: `${FRONTEND_URL}/order-confirmation`,  
-      cancel_url: `${FRONTEND_URL}/detail/${restaurantId}?cancelled=true`,
-      webhook_url: "https://www.webhook_url.tn", // URL de ton webhook
-    };
-    
-    // Envoi de la requête à Paymee
-    const response = await axios.post(PAYMEE_URL, paymentData, {
-      headers: {
-        'Authorization': `Token ${PAYMEE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.data.status) {
-      console.error('Paymee API error:', response.data);
-      res.status(500).json({ message: 'Error creating Paymee session' });
-      return;
-    }
-
-    // Envoi de l'URL de paiement au frontend
-    res.json({
-      paymentUrl: response.data.data.payment_url,
-      cartItems, // ✅ On renvoie les articles pour affichage dans le frontend
-    });
-
-  } catch (error: any) {
-    console.error('Error processing the order:', error);
-    res.status(500).json({ message: 'Error processing the order' });
+    res.json(orders);
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "something went wrong" });
   }
 };
 
-// Gestion du Webhook Paymee (Step 3)
-export const paymeeWebhookHandler = async (req: Request, res: Response): Promise<void> => {
+type CheckoutSessionRequest = {
+  cartItems: {
+    menuItemId: string;
+    name: string;
+    quantity: string;
+  }[];
+  deliveryDetails: {
+    email: string;
+    name: string;
+    addressLine1: string;
+    city: string;
+  };
+  restaurantId: string;
+};
+
+const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> => {
+  let event;
+
   try {
-    const { token, check_sum, payment_status, order_id, amount, transaction_id } = req.body;
+    const sig = req.headers["stripe-signature"];
+    event = STRIPE.webhooks.constructEvent(
+      req.body,
+      sig as string,
+      STRIPE_ENDPOINT_SECRET
+    );
+  } catch (error: any) {
+    console.log(error);
+    res.status(400).send(`Webhook error: ${error.message}`);return;
+  }
 
-    // Vérification de l'intégrité des données
-    const expectedCheckSum = crypto.createHash('md5')
-      .update(token + (payment_status ? '1' : '0') + PAYMEE_API_KEY)
-      .digest('hex');
+  if (event.type === "checkout.session.completed") {
+    const order = await Order.findById(event.data.object.metadata?.orderId);
 
-    if (check_sum !== expectedCheckSum) {
-      console.error('Check sum mismatch');
-      res.status(400).json({ message: 'Invalid checksum' });
-      return;
-    }
-
-    // Recherche et mise à jour de la commande
-    const order = await Order.findById(order_id);
     if (!order) {
-      res.status(404).json({ message: 'Order not found' });
-      return;
+      
+       res.status(404).json({ message: "Order not found" });return;
     }
 
-    order.status = payment_status ? 'paid' : 'failed';
-    order.transactionId = payment_status ? transaction_id : null;
-    order.totalAmount = amount;
+    if (event.data.object.amount_total !== null) {
+      order.totalAmount = event.data.object.amount_total;
+    } else {
+      throw new Error("Amount total is null");
+    }
+    order.status = "paid";
 
     await order.save();
-    res.status(200).send();
-
-  } catch (error) {
-    console.error('Webhook handling failed:', error);
-    res.status(500).json({ message: 'Webhook handling failed' });
   }
+
+  res.status(200).send();
 };
 
-// Fonction de calcul du montant total
-const calculateTotalAmount = (cartItems: any[], menuItems: any[]) => {
-  return cartItems.reduce((total, cartItem) => {
-    const menuItem = menuItems.find(item => item._id.toString() === cartItem.menuItemId);
-    if (menuItem) {
-      total += menuItem.price * parseInt(cartItem.quantity);
-    }
-    return total;
-  }, 0);
-};
-
-export const getMyOrders = async (req: Request, res: Response): Promise<void> => {
+const createCheckoutSession = async (req: Request, res: Response):Promise<void> => {
   try {
-    // Récupérer l'ID de l'utilisateur à partir du middleware jwtParse
-    const userId = req.userId;
+    const checkoutSessionRequest: CheckoutSessionRequest = req.body;
 
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized: User ID not found" });
-      return;
+    const restaurant = await Restaurant.findById(
+      checkoutSessionRequest.restaurantId
+    );
+
+    if (!restaurant) {
+      throw new Error("Restaurant not found");
     }
 
-    // Rechercher toutes les commandes associées à cet utilisateur
-    const orders = await Order.find({ user: userId })
-      .populate("restaurant", "restaurantName estimatedDeliveryTime imageUrl")
-      .sort({ createdAt: -1 }); // Trier par date de création (plus récent en premier)
+    const newOrder: any = new Order({
+      restaurant: restaurant,
+      user: req.userId,
+      status: "placed",
+      deliveryDetails: checkoutSessionRequest.deliveryDetails,
+      cartItems: checkoutSessionRequest.cartItems,
+      createdAt: new Date(),
+    });
 
-    if (!orders || orders.length === 0) {
-      res.status(200).json({ message: "No orders found", orders: [] });
-      return;
+    const lineItems = createLineItems(
+      checkoutSessionRequest,
+      restaurant.menuItems
+    );
+
+    const session = await createSession(
+      lineItems,
+      newOrder._id.toString(),
+      restaurant.deliveryPrice,
+      restaurant._id.toString()
+    );
+
+    if (!session.url) {
+       res.status(500).json({ message: "Error creating stripe session" });
+       return ;
     }
 
-    // Réponse avec les commandes
-    res.status(200).json({ orders });
+    await newOrder.save();
+    res.json({ url: session.url });
   } catch (error: any) {
-    console.error("Error fetching orders:", error);
-    res.status(500).json({ message: "Error fetching orders" });
+    console.log(error);
+    res.status(500).json({ message: error.raw.message });
   }
 };
+
+const createLineItems = (
+  checkoutSessionRequest: CheckoutSessionRequest,
+  menuItems: MenuItemType[]
+) => {
+  const lineItems = checkoutSessionRequest.cartItems.map((cartItem) => {
+    const menuItem = menuItems.find(
+      (item) => item._id.toString() === cartItem.menuItemId.toString()
+    );
+
+    if (!menuItem) {
+      throw new Error(`Menu item not found: ${cartItem.menuItemId}`);
+    }
+
+    const line_item: Stripe.Checkout.SessionCreateParams.LineItem = {
+      price_data: {
+        currency: "gbp",
+        unit_amount: menuItem.price,
+        product_data: {
+          name: menuItem.name,
+        },
+      },
+      quantity: parseInt(cartItem.quantity),
+    };
+
+    return line_item;
+  });
+
+  return lineItems;
+};
+
+const createSession = async (
+  lineItems: Stripe.Checkout.SessionCreateParams.LineItem[],
+  orderId: string,
+  deliveryPrice: number,
+  restaurantId: string
+) => {
+  const sessionData = await STRIPE.checkout.sessions.create({
+    line_items: lineItems,
+    shipping_options: [
+      {
+        shipping_rate_data: {
+          display_name: "Delivery",
+          type: "fixed_amount",
+          fixed_amount: {
+            amount: deliveryPrice,
+            currency: "gbp",
+          },
+        },
+      },
+    ],
+    mode: "payment",
+    metadata: {
+      orderId,
+      restaurantId,
+    },
+    success_url: `${FRONTEND_URL}/order-status?success=true`,
+    cancel_url: `${FRONTEND_URL}/detail/${restaurantId}?cancelled=true`,
+  });
+
+  return sessionData;
+};
+
 export default {
-  createOrder,
-  paymeeWebhookHandler,
   getMyOrders,
+  createCheckoutSession,
+  stripeWebhookHandler,
 };
