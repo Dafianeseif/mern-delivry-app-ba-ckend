@@ -58,11 +58,8 @@ const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> =
        res.status(404).json({ message: "Order not found" });return;
     }
 
-    if (event.data.object.amount_total !== null) {
-      order.totalAmount = event.data.object.amount_total;
-    } else {
-      throw new Error("Amount total is null");
-    }
+    order.totalAmount = event.data.object.amount_total;
+    console.log(order.totalAmount);
     order.status = "paid";
 
     await order.save();
@@ -132,7 +129,7 @@ const createLineItems = (
 
     const line_item: Stripe.Checkout.SessionCreateParams.LineItem = {
       price_data: {
-        currency: "gbp",
+        currency: "usd",
         unit_amount: menuItem.price,
         product_data: {
           name: menuItem.name,
@@ -162,7 +159,7 @@ const createSession = async (
           type: "fixed_amount",
           fixed_amount: {
             amount: deliveryPrice,
-            currency: "gbp",
+            currency: "usd",
           },
         },
       },
