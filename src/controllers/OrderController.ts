@@ -51,13 +51,6 @@ const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> =
   }
 
   if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-
-  const orderId = session.metadata?.orderId;
-  const totalAmount = session.amount_total;
-
-  console.log("Order ID:", orderId);
-  console.log("Total:", totalAmount);
     const order = await Order.findById(event.data.object.metadata?.orderId);
 
     if (!order) {
