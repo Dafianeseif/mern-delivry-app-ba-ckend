@@ -35,7 +35,10 @@ type CheckoutSessionRequest = {
   restaurantId: string;
 };
 
-const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> => {
+const stripeWebhookHandler = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   let event;
 
   try {
@@ -47,15 +50,26 @@ const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> =
     );
   } catch (error: any) {
     console.log(error);
-    res.status(400).send(`Webhook error: ${error.message}`);return;
+    res.status(400).send(`Webhook error: ${error.message}`);
+    return;
   }
 
   if (event.type === "checkout.session.completed") {
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+
+      console.log("✅ Webhook: checkout.session.completed");
+      console.log("➡️ Session ID:", session.id);
+      console.log("➡️ Amount total:", session.amount_total);
+      console.log("➡️ Metadata:", session.metadata);
+      console.log("➡️ Raw session:", JSON.stringify(session, null, 2));
+    }
+
     const order = await Order.findById(event.data.object.metadata?.orderId);
 
     if (!order) {
-      
-       res.status(404).json({ message: "Order not found" });return;
+      res.status(404).json({ message: "Order not found" });
+      return;
     }
 
     order.totalAmount = event.data.object.amount_total;
@@ -68,7 +82,10 @@ const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> =
   res.status(200).send();
 };
 
-const createCheckoutSession = async (req: Request, res: Response):Promise<void> => {
+const createCheckoutSession = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const checkoutSessionRequest: CheckoutSessionRequest = req.body;
 
@@ -102,8 +119,8 @@ const createCheckoutSession = async (req: Request, res: Response):Promise<void> 
     );
 
     if (!session.url) {
-       res.status(500).json({ message: "Error creating stripe session" });
-       return ;
+      res.status(500).json({ message: "Error creating stripe session" });
+      return;
     }
 
     await newOrder.save();
