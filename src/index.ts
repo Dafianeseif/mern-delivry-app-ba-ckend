@@ -7,8 +7,6 @@ import myRestaurantRoute from "./routes/MyRestaurantRoute";
 import restaurantRoute from "./routes/RestaurantRoute";
 import orderRoute from "./routes/OrderRoute";
 import myUserRoute from "./routes/myUserRoute";
-import { stripeWebhookHandler } from "./controllers/OrderController";
-
 
 mongoose
   .connect(process.env.MONGODB_CONNECTION_STRING as string)
@@ -24,11 +22,8 @@ const app = express();
 
 app.use(cors());
 
-app.post(
-  "/api/order/checkout/webhook",
-  express.raw({ type: "application/json" }),
-  stripeWebhookHandler
-);
+app.use("/api/order/checkout/webhook", express.raw({ type: "*/*" }));
+
 app.use(express.json());
 
 app.get("/health", async (req: Request, res: Response) => {

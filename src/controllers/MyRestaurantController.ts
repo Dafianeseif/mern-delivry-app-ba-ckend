@@ -139,13 +139,9 @@ const getMyRestaurantOrders = async (
   res: Response
 ): Promise<void> => {
   try {
-    const restaurant = await Restaurant.findOne({ user: req.userId });
-    if (!restaurant) {
-      res.status(404).json({ message: "restaurant not found" });
-      return;
-    }
+   
 
-    const orders = await Order.find({ restaurant: restaurant._id })
+    const orders = await Order.find()
       .populate("restaurant")
       .populate("user");
 

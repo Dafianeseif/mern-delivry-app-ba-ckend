@@ -35,10 +35,7 @@ type CheckoutSessionRequest = {
   restaurantId: string;
 };
 
-export const stripeWebhookHandler = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+const stripeWebhookHandler = async (req: Request, res: Response):Promise<void> => {
   let event;
 
   try {
@@ -49,53 +46,28 @@ export const stripeWebhookHandler = async (
       STRIPE_ENDPOINT_SECRET
     );
   } catch (error: any) {
-    // Log de l'erreur
-    console.error("Erreur dans la vérification du webhook :", error.message);
-    res.status(400).send(`Webhook error: ${error.message}`);
-    return;
+    console.log(error);
+    res.status(400).send(`Webhook error: ${error.message}`);return;
   }
 
-  // Vérification du type d'événement
   if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    
-    // Logs de niveau 'info' pour les événements réussis
-    console.info("✅ Webhook: checkout.session.completed");
-    console.info("➡️ Session ID:", session.id);
-    console.info("➡️ Amount total:", session.amount_total);
-    console.info("➡️ Metadata:", session.metadata);
-    console.info("➡️ Raw session:", JSON.stringify(session, null, 2));
+    const order = await Order.findById(event.data.object.metadata?.orderId);
 
-    // Traitement de la commande
-    try {
-      const order = await Order.findById(session.metadata?.orderId);
-
-      if (!order) {
-        console.warn(`Order not found for ID: ${session.metadata?.orderId}`);
-        res.status(404).json({ message: "Order not found" });
-        return;
-      }
-
-      order.totalAmount = session.amount_total;
-      order.status = "paid";
+    if (!order) {
       
-      // Logs supplémentaires pour suivre le processus
-      console.info(`Order ${order._id} updated with total amount: ${order.totalAmount}`);
-      await order.save();
-      
-      // Réponse de succès
-      res.status(200).send();
-    } catch (error) {
-      console.error("Erreur lors de la mise à jour de la commande :", error);
-      res.status(500).send("Internal Server Error");
+       res.status(404).json({ message: "Order not found" });return;
     }
+
+    order.totalAmount = event.data.object.amount_total;
+    order.status = "paid";
+
+    await order.save();
   }
+
+  res.status(200).send();
 };
 
-const createCheckoutSession = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+const createCheckoutSession = async (req: Request, res: Response):Promise<void> => {
   try {
     const checkoutSessionRequest: CheckoutSessionRequest = req.body;
 
@@ -129,8 +101,8 @@ const createCheckoutSession = async (
     );
 
     if (!session.url) {
-      res.status(500).json({ message: "Error creating stripe session" });
-      return;
+       res.status(500).json({ message: "Error creating stripe session" });
+       return ;
     }
 
     await newOrder.save();
