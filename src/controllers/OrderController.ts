@@ -35,7 +35,7 @@ type CheckoutSessionRequest = {
   restaurantId: string;
 };
 
-const stripeWebhookHandler = async (
+export const stripeWebhookHandler = async (
   req: Request,
   res: Response
 ): Promise<void> => {
