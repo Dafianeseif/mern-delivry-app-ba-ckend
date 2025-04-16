@@ -46,7 +46,7 @@ const getMyRestaurant = async (req: Request, res: Response): Promise<void> => {
 const getMyRestaurants = async (req: Request, res: Response): Promise<void> => {
   try {
     
-    const restaurants = await Restaurant.find({ user: req.userId });
+    const restaurants = await Restaurant.find();
 
     if (!restaurants || restaurants.length === 0) {
       res.status(404).json({ message: "No restaurants found" });
