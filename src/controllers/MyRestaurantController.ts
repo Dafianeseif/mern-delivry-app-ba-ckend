@@ -100,7 +100,6 @@ const updateMyRestaurant = async (
 
     const restaurant = await Restaurant.findOne({
       _id: id,
-      user: req.userId,
     });
 
     if (!restaurant) {
